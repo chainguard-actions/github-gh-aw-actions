@@ -1,0 +1,51 @@
+name: Test custom destination
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare a non-/tmp RUNNER_TEMP
+        run: |
+          mkdir -p /tmp/act-runner-temp
+          rm -rf /tmp/custom-gh-aw-dest
+          echo "RUNNER_TEMP=/tmp/act-runner-temp" >> "$GITHUB_ENV"
+      - id: action
+        uses: .
+        env:
+          RUNNER_TEMP: /tmp/act-runner-temp
+        with:
+          destination: /tmp/custom-gh-aw-dest/nested
+      - name: Assert files copied to custom destination
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          DEST=/tmp/custom-gh-aw-dest/nested
+          echo "files_copied: $ACTUAL"
+          if [ ! -d "$DEST" ]; then
+            echo "FAIL: destination directory not created"
+            exit 1
+          fi
+          COUNT=$(find "$DEST" -maxdepth 1 -type f \( -name '*.cjs' -o -name '*.json' -o -name '*.sh' \) | wc -l)
+          echo "files in destination: $COUNT"
+          if [ "$COUNT" -le 0 ]; then
+            echo "FAIL: no files in custom destination"
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$COUNT" ]; then
+            echo "FAIL: files_copied ($ACTUAL) != files present ($COUNT)"
+            exit 1
+          fi
+          if [ ! -f "$DEST/setup_globals.cjs" ]; then
+            echo "FAIL: setup_globals.cjs missing"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert default destination was not used
+        run: |
+          if [ -f /tmp/act-runner-temp/gh-aw/actions/setup_globals.cjs ] && [ ! -f /tmp/custom-gh-aw-dest/nested/setup_globals.cjs ]; then
+            echo "FAIL: files went to default destination"
+            exit 1
+          fi
+          echo "PASS"

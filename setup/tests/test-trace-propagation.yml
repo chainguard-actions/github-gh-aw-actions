@@ -1,0 +1,62 @@
+name: Test trace-id and parent-span-id propagation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare a non-/tmp RUNNER_TEMP
+        run: |
+          mkdir -p /tmp/act-runner-temp
+          echo "RUNNER_TEMP=/tmp/act-runner-temp" >> "$GITHUB_ENV"
+      - id: action
+        uses: .
+        env:
+          RUNNER_TEMP: /tmp/act-runner-temp
+        with:
+          job-name: agent
+          trace-id: 0123456789ABCDEF0123456789ABCDEF
+          parent-span-id: fedcba9876543210
+      - name: Assert trace-id reused (lowercased)
+        env:
+          ACTUAL: ${{ steps.action.outputs.trace-id }}
+        run: |
+          echo "trace-id: $ACTUAL"
+          if [ "$ACTUAL" != "0123456789abcdef0123456789abcdef" ]; then
+            echo "FAIL: expected input trace-id to be reused"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert parent-span-id passed through
+        env:
+          ACTUAL: ${{ steps.action.outputs.parent-span-id }}
+        run: |
+          echo "parent-span-id: $ACTUAL"
+          if [ "$ACTUAL" != "fedcba9876543210" ]; then
+            echo "FAIL: expected parent-span-id fedcba9876543210"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert new span-id generated
+        env:
+          ACTUAL: ${{ steps.action.outputs.span-id }}
+        run: |
+          echo "span-id: $ACTUAL"
+          if ! [[ "$ACTUAL" =~ ^[0-9a-f]{16}$ ]]; then
+            echo "FAIL: expected 16-char hex span-id"
+            exit 1
+          fi
+          if [ "$ACTUAL" = "fedcba9876543210" ]; then
+            echo "FAIL: span-id should differ from parent-span-id"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert trace context exported to env
+        run: |
+          echo "GITHUB_AW_OTEL_TRACE_ID=$GITHUB_AW_OTEL_TRACE_ID"
+          if [ "$GITHUB_AW_OTEL_TRACE_ID" != "0123456789abcdef0123456789abcdef" ]; then
+            echo "FAIL: GITHUB_AW_OTEL_TRACE_ID not exported"
+            exit 1
+          fi
+          echo "PASS"
