@@ -1,0 +1,59 @@
+name: Test custom destination
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Ensure RUNNER_TEMP does not resolve to /tmp (act defaults to /tmp)
+        run: |
+          RESOLVED="$(cd "${RUNNER_TEMP:-/tmp}" 2>/dev/null && pwd -P || echo /tmp)"
+          if [ -z "$RUNNER_TEMP" ] || [ "${RESOLVED%/}" = "/tmp" ]; then
+            mkdir -p /tmp/act-runner-temp
+            echo "RUNNER_TEMP=/tmp/act-runner-temp" >> "$GITHUB_ENV"
+          fi
+      - id: action
+        uses: .
+        with:
+          destination: /tmp/custom-gh-aw-dest/nested
+      - name: Assert files copied to custom destination
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          DEST=/tmp/custom-gh-aw-dest/nested
+          echo "files_copied: $ACTUAL"
+          if [ ! -d "$DEST" ]; then
+            echo "FAIL: destination not created"
+            exit 1
+          fi
+          if [ ! -f "$DEST/action_setup_otlp.cjs" ]; then
+            echo "FAIL: action_setup_otlp.cjs missing in $DEST"
+            exit 1
+          fi
+          COUNT=$(find "$DEST" -maxdepth 1 -type f | wc -l)
+          echo "files in dest: $COUNT"
+          if ! [[ "$ACTUAL" =~ ^[0-9]+$ ]] || [ "$ACTUAL" -le 0 ]; then
+            echo "FAIL: files_copied not a positive integer"
+            exit 1
+          fi
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: no files in destination"
+            exit 1
+          fi
+          SH_COUNT=$(find "$DEST" -maxdepth 1 -name '*.sh' | wc -l)
+          if [ "$SH_COUNT" -gt 0 ]; then
+            NONEXEC=$(find "$DEST" -maxdepth 1 -name '*.sh' ! -perm -u+x | wc -l)
+            if [ "$NONEXEC" -gt 0 ]; then
+              echo "FAIL: shell scripts not executable"
+              exit 1
+            fi
+          fi
+          echo "PASS"
+      - name: Assert safe-outputs still under RUNNER_TEMP
+        run: |
+          if [ ! -f "$RUNNER_TEMP/gh-aw/safeoutputs/config.json" ]; then
+            echo "FAIL: safeoutputs/config.json missing"
+            exit 1
+          fi
+          echo "PASS"

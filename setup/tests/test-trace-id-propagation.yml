@@ -1,0 +1,51 @@
+name: Test trace-id and parent-span-id propagation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Ensure RUNNER_TEMP does not resolve to /tmp (act defaults to /tmp)
+        run: |
+          RESOLVED="$(cd "${RUNNER_TEMP:-/tmp}" 2>/dev/null && pwd -P || echo /tmp)"
+          if [ -z "$RUNNER_TEMP" ] || [ "${RESOLVED%/}" = "/tmp" ]; then
+            mkdir -p /tmp/act-runner-temp
+            echo "RUNNER_TEMP=/tmp/act-runner-temp" >> "$GITHUB_ENV"
+          fi
+      - id: action
+        uses: .
+        with:
+          job-name: activation
+          trace-id: 0123456789abcdef0123456789abcdef
+          parent-span-id: 0123456789abcdef
+      - name: Assert trace-id reused from input
+        env:
+          TRACE_ID: ${{ steps.action.outputs.trace-id }}
+          SPAN_ID: ${{ steps.action.outputs.span-id }}
+          PARENT: ${{ steps.action.outputs.parent-span-id }}
+        run: |
+          echo "trace-id: $TRACE_ID"
+          echo "span-id: $SPAN_ID"
+          echo "parent-span-id: $PARENT"
+          if [ "$TRACE_ID" != "0123456789abcdef0123456789abcdef" ]; then
+            echo "FAIL: expected input trace-id to be reused"
+            exit 1
+          fi
+          if [ -n "$SPAN_ID" ] && ! [[ "$SPAN_ID" =~ ^[0-9a-f]{16}$ ]]; then
+            echo "FAIL: span-id not 16-char hex"
+            exit 1
+          fi
+          if [ -n "$PARENT" ] && ! [[ "$PARENT" =~ ^[0-9a-f]{16}$ ]]; then
+            echo "FAIL: parent-span-id not 16-char hex"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert trace-id exported to environment
+        run: |
+          echo "GITHUB_AW_OTEL_TRACE_ID=$GITHUB_AW_OTEL_TRACE_ID"
+          if [ "$GITHUB_AW_OTEL_TRACE_ID" != "0123456789abcdef0123456789abcdef" ]; then
+            echo "FAIL: GITHUB_AW_OTEL_TRACE_ID not exported"
+            exit 1
+          fi
+          echo "PASS"

@@ -1,0 +1,84 @@
+name: Test basic usage (default destination)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Ensure RUNNER_TEMP does not resolve to /tmp (act defaults to /tmp)
+        run: |
+          RESOLVED="$(cd "${RUNNER_TEMP:-/tmp}" 2>/dev/null && pwd -P || echo /tmp)"
+          if [ -z "$RUNNER_TEMP" ] || [ "${RESOLVED%/}" = "/tmp" ]; then
+            mkdir -p /tmp/act-runner-temp
+            echo "RUNNER_TEMP=/tmp/act-runner-temp" >> "$GITHUB_ENV"
+            echo "Overrode RUNNER_TEMP to /tmp/act-runner-temp"
+          fi
+      - id: action
+        uses: .
+      - name: Assert files_copied output is a positive integer
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          echo "files_copied: $ACTUAL"
+          if ! [[ "$ACTUAL" =~ ^[0-9]+$ ]] || [ "$ACTUAL" -le 0 ]; then
+            echo "FAIL: expected positive integer files_copied"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert files copied to default destination
+        run: |
+          DEST="$RUNNER_TEMP/gh-aw/actions"
+          echo "Checking $DEST"
+          ls "$DEST" | head -20
+          for f in action_setup_otlp.cjs setup_globals.cjs; do
+            if [ ! -f "$DEST/$f" ]; then
+              echo "FAIL: missing $DEST/$f"
+              exit 1
+            fi
+          done
+          if ls "$DEST"/*.test.cjs >/dev/null 2>&1; then
+            echo "FAIL: test files should not be copied"
+            exit 1
+          fi
+          COUNT=$(ls -1 "$DEST" | wc -l)
+          echo "file count in dest: $COUNT"
+          if [ "$COUNT" -lt 1 ]; then
+            echo "FAIL: destination empty"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert safe-outputs, mcp-scripts and prompts trees
+        run: |
+          ROOT="$RUNNER_TEMP/gh-aw"
+          for f in safeoutputs/config.json safeoutputs/tools.json safeoutputs/safe_outputs_tools.json \
+                   safeoutputs/configure_git_credentials.sh safeoutputs/start_safe_outputs_mcp.sh \
+                   mcp-scripts/mcp_server_core.cjs; do
+            if [ ! -f "$ROOT/$f" ]; then
+              echo "FAIL: missing $ROOT/$f"
+              exit 1
+            fi
+          done
+          if [ ! -x "$ROOT/safeoutputs/start_safe_outputs_mcp.sh" ]; then
+            echo "FAIL: start_safe_outputs_mcp.sh not executable"
+            exit 1
+          fi
+          if [ ! -d "$ROOT/prompts" ]; then
+            echo "FAIL: prompts dir missing"
+            exit 1
+          fi
+          if [ ! -d /tmp/gh-aw ]; then
+            echo "FAIL: /tmp/gh-aw not created"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert generated trace-id output
+        env:
+          TRACE_ID: ${{ steps.action.outputs.trace-id }}
+        run: |
+          echo "trace-id: $TRACE_ID"
+          if ! [[ "$TRACE_ID" =~ ^[0-9a-f]{32}$ ]]; then
+            echo "FAIL: expected 32-char hex trace-id"
+            exit 1
+          fi
+          echo "PASS"
