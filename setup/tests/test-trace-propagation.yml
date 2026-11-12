@@ -1,0 +1,60 @@
+name: Test trace-id and parent-span-id propagation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RUNNER_TEMP: /tmp/act-runner-temp
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare RUNNER_TEMP
+        run: mkdir -p /tmp/act-runner-temp
+      - id: action
+        uses: .
+        with:
+          job-name: agent
+          trace-id: 0af7651916cd43dd8448eb211c80319c
+          parent-span-id: b7ad6b7169203331
+      - name: Assert trace-id is reused
+        env:
+          ACTUAL: ${{ steps.action.outputs.trace-id }}
+        run: |
+          echo "trace-id: $ACTUAL"
+          if [ "$ACTUAL" != "0af7651916cd43dd8448eb211c80319c" ]; then
+            echo "FAIL: expected input trace-id to be reused"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert parent-span-id is propagated
+        env:
+          ACTUAL: ${{ steps.action.outputs.parent-span-id }}
+        run: |
+          echo "parent-span-id: $ACTUAL"
+          if [ "$ACTUAL" != "b7ad6b7169203331" ]; then
+            echo "FAIL: expected input parent-span-id"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert span-id is a new 16-hex id
+        env:
+          ACTUAL: ${{ steps.action.outputs.span-id }}
+        run: |
+          echo "span-id: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -qE '^[0-9a-f]{16}$'; then
+            echo "FAIL: span-id should be 16 hex chars"
+            exit 1
+          fi
+          if [ "$ACTUAL" = "b7ad6b7169203331" ]; then
+            echo "FAIL: span-id should differ from parent-span-id"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert trace context exported to env
+        run: |
+          echo "GITHUB_AW_OTEL_TRACE_ID=$GITHUB_AW_OTEL_TRACE_ID"
+          if [ "$GITHUB_AW_OTEL_TRACE_ID" != "0af7651916cd43dd8448eb211c80319c" ]; then
+            echo "FAIL: GITHUB_AW_OTEL_TRACE_ID not exported"
+            exit 1
+          fi
+          echo "PASS"

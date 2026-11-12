@@ -1,0 +1,31 @@
+name: Test latest install (default)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: action
+        uses: .
+      - name: Assert installed-version output is set
+        env:
+          ACTUAL: ${{ steps.action.outputs.installed-version }}
+        run: |
+          echo "actual: $ACTUAL"
+          if [ "$ACTUAL" = "latest" ] || echo "$ACTUAL" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "PASS"
+          else
+            echo "FAIL: expected 'latest' or a semver tag"
+            exit 1
+          fi
+      - name: Assert binary installed and runs
+        run: |
+          BIN="$HOME/.local/share/gh/extensions/gh-aw/gh-aw"
+          ls -la "$HOME/.local/share/gh/extensions/gh-aw" || true
+          if [ ! -x "$BIN" ]; then
+            echo "FAIL: binary not found at $BIN"
+            exit 1
+          fi
+          "$BIN" version
+          echo "PASS"

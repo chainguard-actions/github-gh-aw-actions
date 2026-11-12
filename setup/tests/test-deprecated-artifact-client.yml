@@ -1,0 +1,37 @@
+name: Test deprecated safe-output-artifact-client input is a no-op
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      RUNNER_TEMP: /tmp/act-runner-temp
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare RUNNER_TEMP
+        run: mkdir -p /tmp/act-runner-temp
+      - id: action
+        uses: .
+        with:
+          safe-output-artifact-client: 'true'
+          job-name: activation
+      - name: Assert setup still succeeds
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+          TRACE: ${{ steps.action.outputs.trace-id }}
+        run: |
+          echo "files_copied: $ACTUAL"
+          echo "trace-id: $TRACE"
+          if ! echo "$ACTUAL" | grep -qE '^[0-9]+$' || [ "$ACTUAL" -le 0 ]; then
+            echo "FAIL: expected a positive files_copied"
+            exit 1
+          fi
+          if [ ! -f "$RUNNER_TEMP/gh-aw/actions/action_setup_otlp.cjs" ]; then
+            echo "FAIL: files not copied to default destination"
+            exit 1
+          fi
+          if ! echo "$TRACE" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "FAIL: trace-id should be 32 hex chars"
+            exit 1
+          fi
+          echo "PASS"

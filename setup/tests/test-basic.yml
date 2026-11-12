@@ -1,0 +1,84 @@
+name: Test basic usage (default destination)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # setup.sh refuses RUNNER_TEMP=/tmp (act's default), so use a dedicated dir.
+      RUNNER_TEMP: /tmp/act-runner-temp
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare RUNNER_TEMP
+        run: mkdir -p /tmp/act-runner-temp
+      - id: action
+        uses: .
+      - name: Assert files_copied is a positive integer
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          echo "files_copied: $ACTUAL"
+          if ! echo "$ACTUAL" | grep -qE '^[0-9]+$' || [ "$ACTUAL" -le 0 ]; then
+            echo "FAIL: expected a positive integer"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert files were copied to default destination
+        run: |
+          DEST="$RUNNER_TEMP/gh-aw/actions"
+          ls "$DEST" | head -20
+          COUNT=$(ls -1 "$DEST" | wc -l)
+          echo "count in $DEST: $COUNT"
+          if [ "$COUNT" -le 0 ]; then
+            echo "FAIL: no files in $DEST"
+            exit 1
+          fi
+          if [ ! -f "$DEST/action_setup_otlp.cjs" ]; then
+            echo "FAIL: action_setup_otlp.cjs missing"
+            exit 1
+          fi
+          if ls "$DEST"/*.test.cjs >/dev/null 2>&1; then
+            echo "FAIL: test files should not be copied"
+            exit 1
+          fi
+          for d in prompts mcp-scripts safeoutputs; do
+            if [ ! -d "$RUNNER_TEMP/gh-aw/$d" ]; then
+              echo "FAIL: missing $RUNNER_TEMP/gh-aw/$d"
+              exit 1
+            fi
+          done
+          if [ "$(cat "$RUNNER_TEMP/gh-aw/safeoutputs/config.json")" != "{}" ]; then
+            echo "FAIL: safeoutputs/config.json should be {}"
+            exit 1
+          fi
+          for f in tools.json safe_outputs_tools.json start_safe_outputs_mcp.sh configure_git_credentials.sh; do
+            if [ ! -f "$RUNNER_TEMP/gh-aw/safeoutputs/$f" ]; then
+              echo "FAIL: missing safeoutputs/$f"
+              exit 1
+            fi
+          done
+          if [ ! -x "$RUNNER_TEMP/gh-aw/safeoutputs/start_safe_outputs_mcp.sh" ]; then
+            echo "FAIL: start_safe_outputs_mcp.sh not executable"
+            exit 1
+          fi
+          if [ ! -d /tmp/gh-aw ]; then
+            echo "FAIL: /tmp/gh-aw not created"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert a trace-id is generated
+        env:
+          TRACE: ${{ steps.action.outputs.trace-id }}
+          SPAN: ${{ steps.action.outputs.span-id }}
+        run: |
+          echo "trace-id: $TRACE"
+          echo "span-id: $SPAN"
+          if ! echo "$TRACE" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "FAIL: trace-id should be 32 hex chars"
+            exit 1
+          fi
+          if [ -n "$SPAN" ] && ! echo "$SPAN" | grep -qE '^[0-9a-f]{16}$'; then
+            echo "FAIL: span-id should be 16 hex chars"
+            exit 1
+          fi
+          echo "PASS"
