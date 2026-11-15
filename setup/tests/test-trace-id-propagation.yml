@@ -1,0 +1,52 @@
+name: Test trace-id and parent-span-id propagation
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare a non-/tmp RUNNER_TEMP
+        run: |
+          rm -rf /tmp/runner-temp
+          mkdir -p /tmp/runner-temp
+      - id: action
+        uses: .
+        env:
+          RUNNER_TEMP: /tmp/runner-temp
+        with:
+          job-name: agent
+          trace-id: 0123456789ABCDEF0123456789abcdef
+          parent-span-id: fedcba9876543210
+      - name: Assert trace-id is reused (lowercased)
+        env:
+          ACTUAL: ${{ steps.action.outputs.trace-id }}
+        run: |
+          echo "trace-id: $ACTUAL"
+          if [ "$ACTUAL" != "0123456789abcdef0123456789abcdef" ]; then
+            echo "FAIL: expected input trace-id to be reused"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert span IDs
+        env:
+          SPAN_ID: ${{ steps.action.outputs.span-id }}
+          PARENT: ${{ steps.action.outputs.parent-span-id }}
+        run: |
+          echo "span-id: $SPAN_ID"
+          echo "parent-span-id: $PARENT"
+          if ! [[ "$SPAN_ID" =~ ^[0-9a-f]{16}$ ]]; then echo "FAIL: span-id not 16 hex chars"; exit 1; fi
+          if [ "$SPAN_ID" = "fedcba9876543210" ]; then echo "FAIL: span-id should be new, not the parent"; exit 1; fi
+          if [ "$PARENT" != "fedcba9876543210" ]; then echo "FAIL: expected parent-span-id fedcba9876543210"; exit 1; fi
+          echo "PASS"
+      - name: Assert trace context exported to GITHUB_ENV
+        env:
+          SPAN_ID: ${{ steps.action.outputs.span-id }}
+        run: |
+          echo "GITHUB_AW_OTEL_TRACE_ID=$GITHUB_AW_OTEL_TRACE_ID"
+          echo "GITHUB_AW_OTEL_PARENT_SPAN_ID=$GITHUB_AW_OTEL_PARENT_SPAN_ID"
+          echo "GITHUB_AW_OTEL_JOB_START_MS=$GITHUB_AW_OTEL_JOB_START_MS"
+          if [ "$GITHUB_AW_OTEL_TRACE_ID" != "0123456789abcdef0123456789abcdef" ]; then echo "FAIL: env trace id"; exit 1; fi
+          if [ "$GITHUB_AW_OTEL_PARENT_SPAN_ID" != "$SPAN_ID" ]; then echo "FAIL: env parent span id should equal setup span-id"; exit 1; fi
+          if ! [[ "$GITHUB_AW_OTEL_JOB_START_MS" =~ ^[0-9]+$ ]]; then echo "FAIL: job start ms not numeric"; exit 1; fi
+          echo "PASS"

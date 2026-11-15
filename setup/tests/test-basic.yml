@@ -1,0 +1,60 @@
+name: Test basic usage (default destination)
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare a non-/tmp RUNNER_TEMP (act defaults RUNNER_TEMP to /tmp, which the action rejects)
+        run: |
+          rm -rf /tmp/runner-temp
+          mkdir -p /tmp/runner-temp
+      - id: action
+        uses: .
+        env:
+          RUNNER_TEMP: /tmp/runner-temp
+      - name: Assert files_copied is a positive integer
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          echo "files_copied: $ACTUAL"
+          if ! [[ "$ACTUAL" =~ ^[0-9]+$ ]] || [ "$ACTUAL" -le 0 ]; then
+            echo "FAIL: expected positive integer files_copied"
+            exit 1
+          fi
+          echo "PASS"
+      - name: Assert files exist in default destination
+        run: |
+          DEST=/tmp/runner-temp/gh-aw/actions
+          ls "$DEST" | head -20
+          COUNT=$(ls -1 "$DEST" | wc -l)
+          echo "file count in $DEST: $COUNT"
+          if [ "$COUNT" -le 0 ]; then echo "FAIL: destination empty"; exit 1; fi
+          if ls "$DEST"/*.test.cjs >/dev/null 2>&1; then echo "FAIL: test files should be skipped"; exit 1; fi
+          if [ ! -f "$DEST/action_setup_otlp.cjs" ]; then echo "FAIL: action_setup_otlp.cjs missing"; exit 1; fi
+          if [ ! -x "$DEST/configure_git_credentials.sh" ]; then echo "FAIL: shell script not copied as executable"; exit 1; fi
+          echo "PASS"
+      - name: Assert auxiliary directories were populated
+        run: |
+          ROOT=/tmp/runner-temp/gh-aw
+          for d in prompts mcp-scripts safeoutputs; do
+            if [ ! -d "$ROOT/$d" ]; then echo "FAIL: $ROOT/$d missing"; exit 1; fi
+          done
+          if [ "$(cat "$ROOT/safeoutputs/config.json")" != "{}" ]; then echo "FAIL: config.json should be {}"; exit 1; fi
+          for f in tools.json safe_outputs_tools.json start_safe_outputs_mcp.sh configure_git_credentials.sh; do
+            if [ ! -f "$ROOT/safeoutputs/$f" ]; then echo "FAIL: safeoutputs/$f missing"; exit 1; fi
+          done
+          if [ ! -d /tmp/gh-aw ]; then echo "FAIL: /tmp/gh-aw not created"; exit 1; fi
+          echo "PASS"
+      - name: Assert generated trace and span IDs
+        env:
+          TRACE_ID: ${{ steps.action.outputs.trace-id }}
+          SPAN_ID: ${{ steps.action.outputs.span-id }}
+        run: |
+          echo "trace-id: $TRACE_ID"
+          echo "span-id: $SPAN_ID"
+          if ! [[ "$TRACE_ID" =~ ^[0-9a-f]{32}$ ]]; then echo "FAIL: trace-id not 32 hex chars"; exit 1; fi
+          if [ "$TRACE_ID" = "00000000000000000000000000000000" ]; then echo "FAIL: all-zero trace-id"; exit 1; fi
+          if ! [[ "$SPAN_ID" =~ ^[0-9a-f]{16}$ ]]; then echo "FAIL: span-id not 16 hex chars"; exit 1; fi
+          echo "PASS"

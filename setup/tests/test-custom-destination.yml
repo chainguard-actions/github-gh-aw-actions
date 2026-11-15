@@ -1,0 +1,40 @@
+name: Test custom destination
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Prepare a non-/tmp RUNNER_TEMP
+        run: |
+          rm -rf /tmp/runner-temp /tmp/custom-dest
+          mkdir -p /tmp/runner-temp
+      - id: action
+        uses: .
+        env:
+          RUNNER_TEMP: /tmp/runner-temp
+        with:
+          destination: /tmp/custom-dest/nested/actions
+      - name: Assert files copied to custom destination
+        env:
+          ACTUAL: ${{ steps.action.outputs.files_copied }}
+        run: |
+          DEST=/tmp/custom-dest/nested/actions
+          echo "files_copied: $ACTUAL"
+          if [ ! -d "$DEST" ]; then echo "FAIL: custom destination not created"; exit 1; fi
+          COUNT=$(ls -1 "$DEST" | wc -l)
+          echo "files in $DEST: $COUNT"
+          if ! [[ "$ACTUAL" =~ ^[0-9]+$ ]] || [ "$ACTUAL" -le 0 ]; then echo "FAIL: bad files_copied"; exit 1; fi
+          if [ "$COUNT" -lt "$ACTUAL" ]; then echo "FAIL: dest has fewer files ($COUNT) than files_copied ($ACTUAL)"; exit 1; fi
+          if [ ! -x "$DEST/start_safe_outputs_mcp.sh" ]; then echo "FAIL: shell script missing/not executable"; exit 1; fi
+          echo "PASS"
+      - name: Assert default destination was not used
+        run: |
+          if [ -d /tmp/runner-temp/gh-aw/actions ] && [ -n "$(ls -A /tmp/runner-temp/gh-aw/actions)" ]; then
+            echo "FAIL: files unexpectedly copied into default destination"
+            exit 1
+          fi
+          # prompts/safeoutputs still go under RUNNER_TEMP/gh-aw
+          if [ ! -f /tmp/runner-temp/gh-aw/safeoutputs/config.json ]; then echo "FAIL: safeoutputs missing"; exit 1; fi
+          echo "PASS"
